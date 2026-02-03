@@ -1,6 +1,10 @@
 import mediapipe as mp
 import numpy as np
 import cv2
+from mediapipe.tasks import python
+from mediapipe.tasks.python import vision
+from mediapipe import solutions
+from mediapipe.framework.formats import landmark_pb2
 
 mp_hands = mp.solutions.hands
 mp_drawing = mp.solutions.drawing_utils
@@ -42,3 +46,48 @@ def draw_landmarks_on_image(rgb_image, detection_result):
                 FONT_SIZE, HANDEDNESS_TEXT_COLOR, FONT_THICKNESS, cv2.LINE_AA)
 
   return annotated_image
+
+
+img = cv2.imread("image.jpg")
+
+cv2.imshow("Image", img)
+cv2.waitKey(0)
+cv2.destroyAllWindows()
+
+# STEP 2: Create an HandLandmarker object.
+base_options = python.BaseOptions(model_asset_path='hand_landmarker.task')
+options = vision.HandLandmarkerOptions(base_options=base_options,
+                                       num_hands=2)
+detector = vision.HandLandmarker.create_from_options(options)
+
+# STEP 3: Load the input image.
+image = mp.Image.create_from_file("image.jpg")
+
+# STEP 4: Detect hand landmarks from the input image.
+detection_result = detector.detect(image)
+
+# STEP 5: Process the classification result. In this case, visualize it.
+# Convert landmarks to protobuf format before drawing
+annotated_image = image.numpy_view().copy()
+for idx in range(len(detection_result.hand_landmarks)):
+    hand_landmarks = detection_result.hand_landmarks[idx]
+    handedness = detection_result.handedness[idx]
+    
+    # Convert to protobuf
+    hand_landmarks_proto = landmark_pb2.NormalizedLandmarkList()
+    hand_landmarks_proto.landmark.extend([
+        landmark_pb2.NormalizedLandmark(x=landmark.x, y=landmark.y, z=landmark.z) 
+        for landmark in hand_landmarks
+    ])
+    
+    # Draw landmarks
+    solutions.drawing_utils.draw_landmarks(
+        annotated_image,
+        hand_landmarks_proto,
+        solutions.hands.HAND_CONNECTIONS,
+        solutions.drawing_styles.get_default_hand_landmarks_style(),
+        solutions.drawing_styles.get_default_hand_connections_style())
+
+cv2.imshow("Annotated Image", cv2.cvtColor(annotated_image, cv2.COLOR_RGB2BGR))
+cv2.waitKey(0)
+cv2.destroyAllWindows()
