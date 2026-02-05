@@ -1,6 +1,7 @@
 import cv2
 import mediapipe as mp
 import time
+import platform
 
 
 class HandTracker:
@@ -30,13 +31,14 @@ class HandTracker:
         self.mp_draw = mp.solutions.drawing_utils
         self.mp_drawing_styles = mp.solutions.drawing_styles
         
-    def find_hands(self, img, draw=True):
+    def find_hands(self, img, draw=True, draw_z_values=False):
         """
         Detect hands in the image.
         
         Args:
             img: Input image (BGR format from OpenCV)
             draw: Whether to draw landmarks on the image
+            draw_z_values: Whether to display z-depth values on landmarks
             
         Returns:
             Processed image with landmarks drawn
@@ -57,19 +59,28 @@ class HandTracker:
                     self.mp_drawing_styles.get_default_hand_landmarks_style(),
                     self.mp_drawing_styles.get_default_hand_connections_style()
                 )
+                
+                # Draw z-values on each landmark
+                if draw_z_values:
+                    h, w, c = img.shape
+                    for id, landmark in enumerate(hand_landmarks.landmark):
+                        cx, cy = int(landmark.x * w), int(landmark.y * h)
+                        cz = landmark.z
+                        cv2.putText(img, f"{cz:.2f}", (cx, cy - 10),
+                                    cv2.FONT_HERSHEY_SIMPLEX, 0.3, (255, 255, 0), 1)
         
         return img
     
     def get_positions(self, img, hand_no=0):
         """
-        Get landmark positions for a specific hand.
+        Get landmark positions for a specific hand with depth.
         
         Args:
             img: Input image
             hand_no: Hand index (0 for first hand, 1 for second)
             
         Returns:
-            List of landmark positions [id, x, y]
+            List of landmark positions [id, x, y, z] where z is normalized depth
         """
         landmark_list = []
         
@@ -80,9 +91,51 @@ class HandTracker:
                 for id, landmark in enumerate(hand.landmark):
                     h, w, c = img.shape
                     cx, cy = int(landmark.x * w), int(landmark.y * h)
-                    landmark_list.append([id, cx, cy])
+                    cz = landmark.z  # Normalized depth (0-1, negative = farther away)
+                    landmark_list.append([id, cx, cy, cz])
         
         return landmark_list
+    
+    def get_hand_distance(self, img, hand_no=0):
+        """
+        Calculate approximate distance of hand from camera using hand size reference.
+        Known reference: hand length ~12.3 cm (wrist to middle finger tip) - calibrated
+        
+        Args:
+            img: Input image
+            hand_no: Hand index (0 for first hand, 1 for second)
+            
+        Returns:
+            Estimated distance in cm, or None if hand not detected
+        """
+        landmark_list = self.get_positions(img, hand_no=hand_no)
+        
+        if not landmark_list or len(landmark_list) < 13:
+            return None
+        
+        # Approximate focal length for typical webcam (in pixels)
+        # This varies by camera, but 800-1000 is typical
+        focal_length = 900
+        
+        # Known hand measurements (in cm) - calibrated for this camera
+        known_hand_length = 12.3  # cm (wrist to middle finger tip) - adjusted from 19cm
+        
+        # Get wrist (landmark 0) and middle finger tip (landmark 12)
+        wrist = landmark_list[0]  # [id, x, y, z]
+        middle_finger_tip = landmark_list[12]  # [id, x, y, z]
+        
+        # Calculate distance between wrist and finger tip in pixels
+        dx = middle_finger_tip[1] - wrist[1]
+        dy = middle_finger_tip[2] - wrist[2]
+        measured_length_pixels = (dx**2 + dy**2) ** 0.5
+        
+        if measured_length_pixels < 5:  # Too small, likely noise
+            return None
+        
+        # Using pinhole camera model: distance = (real_size * focal_length) / measured_size
+        distance_cm = (known_hand_length * focal_length) / measured_length_pixels
+        
+        return distance_cm
 
 
 def main():
@@ -90,8 +143,11 @@ def main():
     Main function to capture video and track hands.
     """
     # Initialize video capture (0 is default webcam)
-    # Use DirectShow on Windows to reduce latency
-    cap = cv2.VideoCapture(0, cv2.CAP_DSHOW)
+    # Use DirectShow on Windows to reduce latency, default on Linux/RPi
+    if platform.system() == "Windows":
+        cap = cv2.VideoCapture(0, cv2.CAP_DSHOW)
+    else:
+        cap = cv2.VideoCapture(0)
     
     # Reduce internal buffering to minimize delay
     cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
@@ -119,16 +175,25 @@ def main():
             break
         
         # Find hands in the frame
-        img = tracker.find_hands(img)
+        img = tracker.find_hands(img, draw_z_values=True)
         
-        # Get landmark positions (optional)
-        positions = tracker.get_positions(img)
-        
-        # Example: Print fingertip position (landmark 8 is index fingertip)
-        if positions:
-            # You can access specific landmarks here
-            # For example, landmark 8 is the tip of the index finger
-            pass
+        # Display distance of each hand from camera in upper right corner
+        if tracker.results.multi_hand_landmarks:
+            h, w, c = img.shape
+            y_offset = 30
+            for hand_idx in range(len(tracker.results.multi_hand_landmarks)):
+                try:
+                    distance_cm = tracker.get_hand_distance(img, hand_no=hand_idx)
+                    
+                    if distance_cm is not None:
+                        text = f"Hand {hand_idx + 1}: {distance_cm:.1f}cm"
+                        text_size = cv2.getTextSize(text, cv2.FONT_HERSHEY_PLAIN, 1.5, 1)[0]
+                        x_pos = w - text_size[0] - 50
+                        y_pos = y_offset + hand_idx * 25
+                        cv2.putText(img, text, (x_pos, y_pos), 
+                                    cv2.FONT_HERSHEY_PLAIN, 1.5, (0, 255, 0), 1)
+                except Exception as e:
+                    print(f"Error calculating distance: {e}")
         
         # Calculate and display FPS
         current_time = time.time()
