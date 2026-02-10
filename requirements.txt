@@ -1,6 +1,8 @@
-# Install PyTorch with CUDA support first using:
-# pip install torch==2.0.1+cu118 torchvision==0.15.2+cu118 torchaudio==2.0.2+cu118 --extra-index-url https://download.pytorch.org/whl/cu118
-
+tensorflow
+torch==2.1.0+cpu
+torchvision==0.16.0+cpu
+torchaudio==2.1.0+cpu
+pandas
 numpy
 scipy
 matplotlib
