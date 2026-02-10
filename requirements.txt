@@ -1,7 +1,6 @@
-tensorflow
-torch==2.1.0+cpu
-torchvision==0.16.0+cpu
-torchaudio==2.1.0+cpu
+torch==2.6.0
+torchvision==0.21.0
+torchaudio==2.6.0
 pandas
 numpy
 scipy
