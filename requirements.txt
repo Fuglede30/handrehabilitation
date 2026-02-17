@@ -9,3 +9,7 @@ opencv-python
 tqdm
 mediapipe==0.10.14
 scikit-learn
+ultralytics
+pyyaml
+pynput
+pygame
